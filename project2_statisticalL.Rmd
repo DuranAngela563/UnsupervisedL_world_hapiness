@@ -1,0 +1,2277 @@
+---
+title: "PROJECT 2: SUPERVISED LEARNING: FRAUD DETECTION"
+subtitle: "Statistical Learning. Bachelor in Data Science and Engineering"
+author: "Ángela María Durán Pinto"
+date: '05/11/2023'
+output:
+  html_document: 
+    css: my-theme.css
+    theme: cerulean
+    highlight: tango
+    number_sections: true
+    toc: true
+    toc_depth: 2
+  pdf_document:
+    css: my-theme.css
+    theme: cerulean
+    highlight: tango
+    number_sections: yes
+    toc: yes
+    toc_depth: 1
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+if (requireNamespace("thematic")) 
+  thematic::thematic_rmd(font = "auto")
+```
+
+```{r global_options, include=T, echo = F}
+knitr::opts_chunk$set(echo = T, warning=FALSE, message=FALSE)
+```
+
+# Fraud Detection in Financial Transactions
+
+
+# Introduction:
+
+In the ever-evolving landscape of financial transactions, the facilitation of secure and trustworthy electronic payments is imperative for the smooth functioning of the global economy. However, the increasing sophistication of fraudulent activities poses a considerable threat to the integrity of these transactions, necessitating robust and adaptive fraud detection mechanisms. Beyond financial losses, fraudulent transactions erode trust in digital platforms and financial institutions, underscoring the critical importance of effective fraud detection systems.
+
+In this project, we embark on the exploration and implementation of machine learning techniques to address the multifaceted challenge of fraud detection. We integrate both classification and regression tasks, seeking not only to identify fraudulent transactions but also to predict transaction amounts, a nuanced endeavor that enhances our ability to discern anomalies and patterns indicative of potential fraud.
+
+
+## Classification Task: A Binary Lens on Fraud Detection
+
+In the classification task, our focus is on categorizing transactions into binary outcomes: legitimate or fraudulent. The pivotal "Is Fraud?" variable acts as our guide, serving as a binary label that allows our models to distinguish between transactions with a potential risk of fraud and those that align with typical user behavior.
+
+Why is this Useful?
+
+-   Risk Mitigation: The classification task is instrumental in mitigating risks associated with fraudulent transactions by providing a binary assessment of their legitimacy.
+
+-   Timely Intervention: Identifying fraudulent activities promptly enables swift intervention, minimizing financial losses and fortifying trust in financial systems.
+
+-   Resource Optimization: Accurate classification allows for targeted allocation of resources to investigate and address potential fraud, avoiding unnecessary scrutiny of legitimate transactions.
+
+
+
+
+# Data Preprocessing
+
+## Analyse the datasets
+
+- User_id: Unique identifier for each user.
+- Card_id: Unique identifier for each credit card.
+- Year, Month, Day, Time: Components of the transaction timestamp, providing information about when the transaction occurred.
+- Amount: The monetary value of the transaction.
+- Use_Chip: Indicator of whether the transaction utilized a chip for security.
+- Merchant_Name: Name of the merchant involved in the transaction.
+- Merchant_City, Merchant_State: Location details of the merchant.
+- MCC (Merchant Category Code): A standardized code representing the type of business the merchant is engaged in.
+- Person: Identifier for an individual associated with the card.
+- Current_Age, Retirement_Age, Birth_Year, Birth_Month, Gender: Demographic details of the cardholder.
+- Address, City, State, Zipcode: Cardholder's address information.
+- Latitude, Longitude: Geographic coordinates of the cardholder's location.
+- Per_Capita_Income_Zipcode: Average income per person in the cardholder's zipcode.
+- Yearly_Income_Person: Annual income of the cardholder.
+- Total_Debt: Cumulative debt of the cardholder.
+- FICO_Score: Credit score indicating the cardholder's creditworthiness.
+- Num_Credit_Cards: Number of credit cards associated with the cardholder.
+- Card_Type: Type or brand of the credit card.
+- Credit_Limit: Maximum amount that can be charged on the credit card.
+- Card_on_Dark_Web: Indicator of whether the credit card information is found on the dark web.
+- Fraud: Binary variable indicating whether the transaction is fraudulent (1) or not (0).
+- Date: Full date (combining Year, Month, Day) of the transaction.
+
+These variables collectively provide comprehensive information about the credit card transactions, the cardholders, and associated demographic and geographic details, enabling a thorough analysis for fraud detection and risk assessment.
+
+
+
+First, it is important to load all the libraries that will be needed along the project
+
+```{r warning=FALSE}
+
+#setwd("C:/1Angela/universidad/3/1cuatrimestre/aprendizaje_estadistico/project2")
+rm(list=ls()) 
+# Load required libraries
+library(dplyr)
+library(tidyr)
+library(data.table)
+
+# Dealing with missing values
+library(mice)
+
+#GGally: collection of functions for creating plots and visualizations to explore and understand relationships between variables in your data. : heatmap-like graphs, and ggcorr
+library(GGally)
+
+# Visualisation and Imputation of Missing Data
+library(VIM)
+
+library(ggplot2)
+
+library(caret)
+
+
+library(randomForest)
+library(gbm)
+library(neuralnet)
+
+library(pROC)
+library(rpart)
+library(rpart.plot)
+
+library(xgboost)
+library(knitr)
+
+library(lubridate)
+
+library(leaps)
+#library(olsrr)
+
+library(leaflet)
+library(kknn)
+
+library(glmnet)
+library(elasticnet)
+
+```
+
+
+
+
+## Feature engineering
+
+For this project three datasets are going to be used. "Users" which contain variables related with the person that has made the transaction. "Cards" with variables regarding the user card. Finally, "transaction", the main dataset with features about the transaction itself.
+
+First, the individual datasets are loaded.
+
+```{r}
+
+transactions <- read.csv("credit_card_transactions-ibm_v2.csv")
+
+cards<- read.csv("sd254_cards.csv")
+users<- read.csv("sd254_users.csv")
+```
+
+If we look at the dimensions we see a large dataset for the transactions
+
+```{r}
+dim(transactions)
+dim(cards)
+dim(users)
+
+```
+
+Now, we want to merge the three datasets in order to obtain a dataset with all the information altogether. For that, we need to a a column to User, with the user_id so that the merge can be done.
+
+```{r}
+# Add a new column "User" to the users dataset with a range of values starting from 0
+users$User <- seq(from = 0, to = nrow(users) - 1)
+
+# Check the modified users dataset
+head(users)
+
+
+```
+
+```{r}
+# Step 1: Join transactions with users
+merged_data_users <- transactions %>%
+  left_join(users, by = "User")
+
+
+```
+
+```{r}
+
+# Step2: Add relevant columns from cards dataset (excluding CARD.INDEX)
+
+# Convert data.frames to data.tables
+dt_merged_data_users <- as.data.table(merged_data_users)
+dt_cards <- as.data.table(cards)
+
+# Remove duplicates in CARD.INDEX in dt_cards
+dt_cards_unique <- unique(dt_cards, by = "CARD.INDEX")
+
+# Set the key columns for joining
+setkey(dt_merged_data_users, "Card")
+setkey(dt_cards_unique, "CARD.INDEX")
+
+# Perform left join using data.table's syntax
+merged_data <- dt_merged_data_users[dt_cards_unique[, list(CARD.INDEX, Card.Type, Credit.Limit, Card.on.Dark.Web)], 
+                                    on = .(Card = CARD.INDEX)]
+
+# Check the merged dataset
+head(merged_data)
+
+# Save merged_data in the working directory
+fwrite(merged_data, "merged_data.csv")
+
+```
+
+
+
+## Duplicated observations
+
+First, we search for exactly duplicated rows. We obtain 66. This is not very usual as at least one variable can change.
+
+```{r}
+
+sum(duplicated(merged_data))
+
+duplicated_rows <- which(duplicated(merged_data))
+cat("Number of duplicated rows:", duplicated_rows, "\n")
+
+merged_data = merged_data[-duplicated_rows,]
+
+```
+
+
+Then we look for observations with duplicated values for some columns. We consider duplicated observations transactions with the same amount made by the same user the same year, month and day. Then, we obtain no more duplicates.
+
+
+```{r}
+
+# Remove duplicates using dplyr package to keep only the unique rows based on some of the columns
+data_cleaned <- merged_data %>%
+  distinct(Amount,User,Day,Month,Year, .keep_all = TRUE)
+
+cat("Number of duplicated rows:", nrow(merged_data)-nrow(data_cleaned), "\n")
+```
+
+
+
+## Take a sample: Large dataset and Imbalanced Classes
+
+
+Opting to work with a sample from the extensive dataset serves as a strategic decision with several practical advantages. Given the substantial size of the original dataset, using a sample enables more efficient processing, analysis, and model development. It strikes a balance between analytical accuracy and computational efficiency.
+
+
+**Imbalanced Classes**
+
+```{r}
+
+ggplot(data = data_cleaned, aes(x = Is.Fraud., fill = Is.Fraud.)) +
+  geom_bar() +
+  labs(title = "Distribution of Fraudulent Transactions", x = "Fraud", y = "Count")
+
+```
+
+
+Imbalanced class distribution, where one class significantly outnumbers the other, is a common challenge in classification tasks. In scenarios like fraud detection, the occurrence of rare events (e.g., fraudulent transactions) is far fewer than regular instances. This imbalance poses issues such as biased model training, misleading accuracy, and difficulty in detecting rare events due to a lack of sufficient examples for the minority class.
+
+To address this challenge, a common strategy is to take a sample with proportionate classes. This involves creating a balanced dataset by randomly selecting instances from both classes, ensuring that the model is exposed to an equal representation of each. This approach enhances model performance, as it prevents the model from being skewed towards the majority class and allows it to discern patterns in the minority class.
+
+The benefits of sampling with proportionate classes include improved model generalization, mitigation of bias, better evaluation metrics accuracy, and computational efficiency. Striking the right balance in the sampling proportion is crucial, as too much undersampling may lead to information loss. The chosen proportion depends on the specific characteristics of the problem and the desired trade-off between class balance and training set size. This strategy contributes to the development of more robust and equitable machine learning models, particularly in situations where class imbalances are pronounced.
+
+**Test Set**
+
+When balancing classes, it's crucial to apply the technique to the training set only. The test set should remain representative of the real-world distribution to provide a reliable assessment of model generalization. Introducing class balancing to the test set could distort the evaluation metrics, leading to an inaccurate estimation of model performance.
+
+**Strategy**
+
+We are following a strategy to handle both the imbalanced class issue and the computational challenges posed by a large dataset. Here's a step-by-step breakdown of the plan:
+
+1.  *Split Original Dataset into Training and Test Sets:* Divide your original dataset into a training set and a test set. This is typically done using a random split, e.g., 70% for training and 30% for testing.
+
+2.  *Balancing the Training Set:* Apply undersampling technique for balancing the classes in the training set.
+
+3.  *Take a Sample of the Balanced Training Set:* Since the dataset is large and for computational efficiency, take a random sample from the balanced training set. This subset will be used for actual model training.
+
+4.  *Sample the Test Set Proportionally:* Sample a subset from the original test set, ensuring that the class proportions remain similar to the final balanced training set. This ensures that the test set reflects the characteristics of the training set.
+
+The **downSample** function calculates the frequency of each class in the target variable. Then it randomly selects a subset of instances from the majority class to achieve the desired downsampling rate. Create Balanced Dataset:
+
+
+```{r}
+
+# Assuming 'original_data' is your original dataset
+set.seed(123)  # Set seed for reproducibility
+
+# Step 1: Split original dataset
+splitIndex <- createDataPartition(data_cleaned$Is.Fraud., p = 0.7, list = FALSE)
+train_set <- data_cleaned[splitIndex, ]
+test_set <- data_cleaned[-splitIndex, ]
+
+
+fwrite(train_set, "train_data_cleaned.csv")
+fwrite(test_set, "test_data_cleaned.csv")
+
+```
+
+
+```{r}
+
+train_set <- read.csv("train_data_cleaned.csv")
+test_set <- read.csv("test_data_cleaned.csv")
+
+
+train_set$Is.Fraud. = factor(x = train_set$Is.Fraud.)
+# Step 2: Balance the training set ( using undersampling)
+set.seed(456)
+balanced_train_set <- downSample(x = train_set[, -which(names(train_set) == "Is.Fraud.")],
+                                 y = train_set$Is.Fraud.)
+
+
+# Shuffle the rows to mix the classes
+balanced_train_set <- balanced_train_set[sample(nrow(balanced_train_set)), ]
+
+fwrite(balanced_train_set, "balanced_train_set_data_cleaned.csv")
+
+set.seed(831)
+# Step 3: Take a sample from the balanced training set
+sampled_train_set <- balanced_train_set[sample(nrow(balanced_train_set), 0.25 * nrow(balanced_train_set)), ]
+
+
+# Step 4: Sample the test set proportionally
+sampled_test_set <- test_set[sample(nrow(test_set), 0.3 * nrow(sampled_train_set)), ]
+
+# Now 'sampled_train_set' and 'sampled_test_set' can be used for model training and testing
+
+```
+
+
+```{r}
+
+# Check the class distribution in the original, training, and test sets
+table(sampled_train_set$Class)
+table(sampled_test_set$Is.Fraud.)
+
+
+```
+
+
+
+
+## Fix or remove typos or errors
+
+
+```{r}
+glimpse(sampled_train_set)
+```
+
+First, it is important to set appropriate column names.
+
+
+```{r}
+new_column_names_training <- c( "User_id", "Card_id", "Year", "Month", "Day", "Time", "Amount", "Use_Chip", "Merchant_Name", "Merchant_City", "Merchant_State", "Zip", "MCC",  "Errors",   "Person" , "Current_Age", "Retirement_Age", "Birth_Year", "Birth_Month", "Gender", "Address", "Apartment", "City", "State", "Zipcode", "Latitude", "Longitude", "Per_Capita_Income_Zipcode", "Yearly_Income_Person",     "Total_Debt", "FICO_Score", "Num_Credit_Cards", "Card_Type","Credit_Limit", "Card_on_Dark_Web","Fraud")
+
+new_column_names_test <- c( "User_id", "Card_id", "Year", "Month", "Day", "Time", "Amount", "Use_Chip", "Merchant_Name", "Merchant_City", "Merchant_State", "Zip", "MCC",  "Errors", "Fraud",  "Person" , "Current_Age", "Retirement_Age", "Birth_Year", "Birth_Month", "Gender", "Address", "Apartment", "City", "State", "Zipcode", "Latitude", "Longitude", "Per_Capita_Income_Zipcode", "Yearly_Income_Person",     "Total_Debt", "FICO_Score", "Num_Credit_Cards", "Card_Type","Credit_Limit", "Card_on_Dark_Web")
+
+colnames(sampled_train_set) <- new_column_names_training
+colnames(sampled_test_set) <- new_column_names_test
+
+```
+
+
+
+### Encoding Categorical Variables
+
+It is essential to encode categorical variables as most machine learning algorithms require numerical data for analysis. Encoding ensures that the model can interpret and learn from categorical features.
+
+Furthermore, assigning meaningful labels to levels makes it easier to understand the categories represented by each level.
+
+Use.Chip column contains different transaction methods.
+
+```{r}
+### Use_Chip
+sampled_train_set$Use_Chip= factor(x = sampled_train_set$Use_Chip, 
+                                  levels = c("Chip Transaction", "Swipe Transaction", "Online Transaction"),
+                                  labels =  c("Chip", "Swipe", "Online")
+                                  )
+
+sampled_test_set$Use_Chip= factor(x = sampled_test_set$Use_Chip, 
+                                  levels = c("Chip Transaction", "Swipe Transaction", "Online Transaction"),
+                                  labels =  c("Chip", "Swipe", "Online")
+                                  )
+
+
+### Card_Type
+sampled_train_set$Card_Type = factor(x = sampled_train_set$Card_Type,
+                                    levels = c("Debit", "Credit"),
+                                   labels = c("Debit", "Credit")
+                                   )
+
+sampled_test_set$Card_Type = factor(x = sampled_test_set$Card_Type,
+                                    levels = c("Debit", "Credit"),
+                                   labels = c("Debit", "Credit")
+                                   )
+
+
+### Card_on_Dark_Web
+sampled_train_set$Card_on_Dark_Web = factor(x = sampled_train_set$Card_on_Dark_Web,
+                                          levels = c("No", "Yes"),
+                                          labels = c("No", "Yes")
+                                          )
+
+sampled_test_set$Card_on_Dark_Web = factor(x = sampled_test_set$Card_on_Dark_Web,
+                                          levels = c("No", "Yes"),
+                                          labels = c("No", "Yes")
+                                          )
+
+
+### Gender
+sampled_train_set$Gender = factor(x = sampled_train_set$Gender,
+                                levels = c("Female", "Male"),
+                                labels = c("Female", "Male") )
+
+sampled_test_set$Gender = factor(x = sampled_test_set$Gender,
+                                levels = c("Female", "Male"),
+                                labels = c("Female", "Male") )
+
+
+### Fraud
+sampled_train_set$Fraud = factor(x = sampled_train_set$Fraud)
+sampled_test_set$Fraud = factor(x = sampled_test_set$Fraud)
+
+### Merchant_City 
+sampled_train_set$Merchant_City = as.factor(sampled_train_set$Merchant_City)
+sampled_test_set$Merchant_City = as.factor(sampled_test_set$Merchant_City)
+
+### Merchant_State
+sampled_train_set$Merchant_State = as.factor(sampled_train_set$Merchant_State)
+sampled_test_set$Merchant_State = as.factor(sampled_test_set$Merchant_State)
+
+### City
+sampled_train_set$City = as.factor(sampled_train_set$City)
+sampled_test_set$City = as.factor(sampled_test_set$City)
+
+### State
+sampled_train_set$State = as.factor(sampled_train_set$State)
+sampled_test_set$State = as.factor(sampled_test_set$State)
+
+
+```
+
+
+
+### Fix numerical variables
+
+Remove the dollar sign (\$) and convert the following columns to numeric types
+
+```{r}
+# The gsub function is used for pattern matching and replacement in strings. \\$ is a regular expression pattern that matches the dollar  # sign $. The double backslash is used to escape the special meaning of the dollar sign in regular expressions.
+# An empty string "" is specified as the replacement
+
+sampled_train_set$Amount <- as.numeric(gsub("\\$", "", sampled_train_set$Amount))
+sampled_test_set$Amount <- as.numeric(gsub("\\$", "", sampled_test_set$Amount))
+
+sampled_train_set$Credit_Limit <- as.numeric(gsub("\\$", "", sampled_train_set$Credit_Limit))
+sampled_test_set$Credit_Limit <- as.numeric(gsub("\\$", "", sampled_test_set$Credit_Limit))
+
+sampled_train_set$Yearly_Income_Person <- as.numeric(gsub("\\$", "", sampled_train_set$Yearly_Income_Person))
+sampled_test_set$Yearly_Income_Person <- as.numeric(gsub("\\$", "", sampled_test_set$Yearly_Income_Person))
+
+sampled_train_set$Per_Capita_Income_Zipcode <- as.numeric(gsub("\\$", "", sampled_train_set$Per_Capita_Income_Zipcode))
+sampled_test_set$Per_Capita_Income_Zipcode <- as.numeric(gsub("\\$", "", sampled_test_set$Per_Capita_Income_Zipcode))
+
+sampled_train_set$Total_Debt <- as.numeric(gsub("\\$", "", sampled_train_set$Total_Debt))
+sampled_test_set$Total_Debt <- as.numeric(gsub("\\$", "", sampled_test_set$Total_Debt))
+
+```
+
+
+
+### Change date format
+
+```{r}
+# Convert Time column to POSIXct format
+sampled_train_set$Time <- as.POSIXct(sampled_train_set$Time, format = "%H:%M", tz = "UTC")
+sampled_test_set$Time <- as.POSIXct(sampled_test_set$Time, format = "%H:%M", tz = "UTC")
+
+# Assuming that Year, Month, and Day are already numeric
+sampled_train_set$Date <- as.Date(paste(sampled_train_set$Year, sampled_train_set$Month, sampled_train_set$Day, sep = "-"))
+sampled_test_set$Date <- as.Date(paste(sampled_test_set$Year, sampled_test_set$Month, sampled_test_set$Day, sep = "-"))
+
+
+```
+
+```{r}
+glimpse(sampled_train_set)
+```
+
+
+```{r}
+summary(sampled_train_set)
+
+```
+
+
+```{r}
+fwrite(sampled_train_set, "sampled_train_set.csv")
+fwrite(sampled_test_set, "sampled_test_set.csv")
+```
+
+
+
+
+## Missing Values
+
+Missing values, often denoted as NA (Not Available) or NaN (Not-a-Number), are placeholders used in data to represent the absence of a value or an unknown value for a particular observation or variable. They can have a significant impact on data analysis and modeling.
+
+We can see the distribution of the NAs with the mice package
+
+```{r}
+sum(is.na(sampled_train_set))
+sum(is.na(sampled_test_set))
+```
+
+There are 13304 missing values for the training set and 2879 for the test set, which is a high amount.
+
+```{r}
+md.pattern(sampled_train_set)
+```
+
+```{r}
+aggr(sampled_train_set, number = TRUE, sortVars = TRUE, labels = names(sampled_train_set),
+     cex.axis = .7, gap = 1, ylab= c('Missing data','Pattern'))
+```
+
+It can be seen that the "Apartment" variable has more than 70% of its values as NAs, so it will be removed, as it also does not give to much information. We will also remove "Zip" variable for the same reason.
+
+We also remove the "Errors" variable as almost all its values are empty strings, "".
+
+```{r}
+sampled_train_set =  sampled_train_set %>% dplyr::select(-Apartment, -Zip, -Errors)
+sampled_test_set =  sampled_test_set %>% dplyr::select(-Apartment, -Zip, -Errors)
+```
+
+The "mice" package in R is a powerful tool which is an iterative imputation method that replaces missing values with multiple imputations using a regression model. The imputed values are then used to estimate the missing values in the subsequent iteration until the convergence criteria are met. We are going to use Random Forest as method.
+
+imp_train \<- mice(sampled_train_set, method = 'cart', m = 4, parallel = TRUE) sampled_train_set= complete(imp_train)
+
+Because of my system doesn't have sufficient memory (RAM) available to perform the imputation, I am going to remove the observations with missing values considering that I have a high number of observations. However, this is not the best approach.
+
+
+Let' see the nº of observations with missing values
+
+```{r}
+sum(apply(sampled_train_set, 1, function(row) any(is.na(row))))
+sum(apply(sampled_test_set, 1, function(row) any(is.na(row))))
+```
+
+```{r}
+# Remove observations with missing values from sampled_train_set
+sampled_train_set <- na.omit(sampled_train_set)
+
+# Remove observations with missing values from sampled_test_set
+sampled_test_set <- na.omit(sampled_test_set)
+
+```
+
+```{r}
+
+sum(is.na(sampled_train_set))
+sum(is.na(sampled_test_set))
+```
+
+Now, we don't have any missing values.
+
+```{r}
+fwrite(sampled_train_set, "sampled_train_set_no_NAs.csv")
+fwrite(sampled_test_set, "sampled_test_set_no_NAs.csv")
+```
+
+
+
+
+## Outliers
+
+An outlier is an observation or data point that significantly differs from other observations in a dataset. It is an unusual or rare value that falls outside the typical range of values in a dataset.
+
+First, we make a general boxplot for the entire dataset.
+
+```{r}
+# Select numeric columns only
+numeric_data <- sampled_train_set[sapply(sampled_train_set, is.numeric)]
+
+# Create horizontal boxplot for numeric columns
+boxplot(scale(numeric_data), col = "lightblue", las = 2, horizontal = TRUE, ylim = c(-8, 15))
+# Add a title to the plot
+title(main = "Boxplot of Numeric Variables")
+
+
+```
+
+
+Upon inspecting the boxplot, it appears that potential outliers are present. Notably, variables associated with monetary values, such as "Amount," exhibit a higher prevalence of outliers. Let's zoom in on these specific variables and assess whether this observed behavior is plausible.
+
+
+```{r}
+par(mfrow=c(1,3))
+# For "Amount"
+ggplot(sampled_train_set) +
+  aes(x = "", y = Amount) +
+  geom_boxplot(fill = "lightblue") +
+  labs(y = "Amount") +
+  ggtitle("Boxplot of Amount") +  # Add title
+  theme_light() +
+  theme(plot.title = element_text(hjust = 0.5))  # Center the title
+```
+
+
+In the context of financial transactions, it's not uncommon to observe a wide range of amounts, and extreme values can be valid, depending on the nature of the transactions. For instance, negative amounts could represent refunds or returns, and large positive amounts might be associated with significant purchases or transactions. Therefore, the presence of values ranging from -260 to over 2800 in the 'Amount' variable doesn't necessarily indicate outliers.
+
+In other words, the observed range is plausible in the context of real-world financial transactions, and these values may accurately reflect the diversity of transaction amounts. As a result, it might not be appropriate to consider them as outliers without further domain-specific knowledge.
+
+
+
+
+## Visualizations
+
+
+
+### Univariate: Dimension 1
+
+We have already seen the boxplots
+
+```{r}
+
+ggplot(data = sampled_train_set, aes(x = Fraud, fill = Fraud)) +
+  geom_bar() +
+  labs(title = "Distribution of Fraudulent Transactions", x = "Fraud", y = "Count")
+
+```
+
+We can see that know we have balanced classes.
+
+Histogram for Continuous Variables
+
+```{r}
+
+# Example for 'Amount'
+library(ggplot2)
+
+ggplot(sampled_train_set, aes(x = Amount)) +
+  geom_histogram(fill = "lightblue", color = "black", bins = 70) +
+  labs(title = "Distribution of Amount", x = "Amount", y = "Frequency")
+
+
+```
+
+```{r}
+
+ggplot(sampled_train_set, aes(x = Amount  )) +
+  geom_density(fill = "lightblue", color = "black", size = 0.7, linetype =1) +
+  #geom_rug(position = "identity", sides = "b", alpha = 0.5) +
+  labs(title = "Distribution of Amount", x = "Amount", y = "Density")
+```
+
+```{r}
+
+ggplot(sampled_train_set, aes(x = log(Amount)  )) +
+  geom_density(fill = "lightblue", color = "black", size = 0.8, linetype =1) +
+  #geom_rug(position = "identity", sides = "b", alpha = 0.5) +
+  labs(title = "Distribution of Amount", x = "Amount", y = "Density")
+```
+
+
+
+### Bivariate
+
+As we know the current age, we don't need the other variables related with the Age "Birth_Year", "Birth_Month", "Retirement_Age"
+
+```{r}
+sampled_train_set =  sampled_train_set %>% dplyr::select(-Birth_Year, -Birth_Month, -Retirement_Age)
+sampled_test_set =  sampled_test_set %>% dplyr::select(-Birth_Year, -Birth_Month, -Retirement_Age)
+
+```
+
+
+**Correlation of numerical variables** It can be seen the relationship between the numerical variables
+
+```{r}
+numeric_data <- sampled_train_set[sapply(sampled_train_set, is.numeric)]
+
+ggcorr(numeric_data, label = T)
+
+# Assuming 'sampled_train_set' is your sampled training set
+
+correlation_matrix <- cor(numeric_data)
+
+# Print the correlation matrix
+print(correlation_matrix)
+```
+
+
+In this case, the correlation coefficient between Yearly_Income_Person and Per_Capita_Income_Zipcode is approximately 0.93. In practical terms, this high positive correlation suggests that areas with higher per capita income tend to have residents with higher yearly individual incomes. It's not surprising, as per capita income is calculated by dividing the total income of an area by its population, and areas with higher individual incomes are likely to contribute to a higher per capita income.
+
+This strong relationship could lead to multicollinearity, making it challenging to interpret the individual contributions of each variable. However, While a high correlation suggests a strong statistical association, it doesn't imply causation. Other factors or variables may contribute to this relationship.
+
+Total_Debt and Yearly_Income_Person: These variables show a moderate positive correlation, suggesting that as yearly income increases, total debt tends to increase as well.
+
+Current_Age and Num_Credit_Cards: There is a positive correlation between the current age of the person and the number of credit cards they have.
+
+FICO_Score and Total_Debt: There is a negative correlation between FICO score and total debt, suggesting that individuals with higher FICO scores tend to have lower total debt.
+
+Amount and Total_Debt: There is a positive correlation between the amount of the transaction and the total debt, suggesting that higher transaction amounts might be associated with higher total debt
+
+
+
+**Distribution on amount depending on Fraud Class**
+
+
+```{r}
+ggplot(data=sampled_train_set, aes(x=Amount)) +
+    geom_density(aes(group=Fraud, colour=Fraud, fill=Fraud), adjust=1.5, alpha=0.3)  +
+  labs(title = "Distribution of Amount", x = "Amount", y = "Density")
+    #theme_ipsum()
+
+```
+
+```{r}
+ggplot(data=sampled_train_set, aes(x=log(Amount) )) +
+    geom_density(aes(group=Fraud, colour=Fraud, fill=Fraud), adjust=1.5, alpha=0.3, size = 0.6, linetype =1) +
+    labs(title = "Distribution of Amount", x = "log(Amount)", y = "Density")
+    #theme_ipsum()
+
+
+```
+
+
+It seems that the transactions with 'LogAmount' larger than 4.5 (90 dollars) and smaller than -0.5 (0.6 dollars) have a higher frequency and probability density of being fraudulent. On the other hand, the ones with 'LogAmount' from -0.5 to 4.5 have a higher chance of being legit.
+
+
+
+
+**Fraudulent Transactions by Card Type**
+
+```{r}
+ggplot(data = sampled_train_set, aes(x = Fraud, fill = Card_Type)) +
+  geom_bar(position = "stack") +
+  labs(title = "Fraudulent Transactions by Card Type", x = "Fraud", y = "Count", fill = "Card Type")
+
+
+
+```
+
+The proportion of card types is similar for both types of transactions, and most transactions, regardless of fraud status, are made with debit cards. This suggests that the distribution of card types might not be a differentiating factor for fraud detection in this dataset.
+
+
+**Fraudulent Transactions by Age Group**
+
+Discretizing age and creating a graph between fraud and age groups could be a useful approach. It might help identify if certain age groups are more susceptible to fraud or if there are patterns in fraudulent activities based on age.
+
+```{r}
+
+# Assuming you have a variable 'Age' in your dataset
+
+# Create age groups
+sampled_train_set$Age_Group <- cut(sampled_train_set$Current_Age, breaks = c(18, 25, 35, 50, 65, max(sampled_train_set$Current_Age)), labels = c("18-25", "26-35", "36-50", "51-65", "66+"))
+
+sampled_test_set$Age_Group <- cut(sampled_test_set$Current_Age, breaks = c(18, 25, 35, 50, 65, max(sampled_test_set$Current_Age)), labels = c("18-25", "26-35", "36-50", "51-65", "66+"))
+
+# Create a bar plot
+ggplot(data = sampled_train_set, aes(x = Age_Group, fill = Fraud)) +
+  geom_bar(position = "stack") +
+  labs(title = "Fraudulent Transactions by Age Group", x = "Age Group", y = "Count", fill = "Fraud")
+
+```
+
+
+We can see that in 36-50, 51-65 and 66+ groups there are much more transactions. The amount of fraudulent transaction in this groups represent almost the half of their transactions. In 26-35 group the fraudulent transactions represent a third of their transactions. Finally, in group 18-25 there are not almost fraudulent transactions.
+
+
+```{r}
+
+# Create a bar plot
+ggplot(data = sampled_train_set, aes(x = Gender, fill = Fraud)) +
+  geom_bar(position = "stack") +
+  labs(title = "Fraudulent Transactions by Gender", x = "Gender", y = "Count", fill = "Fraud")
+
+```
+
+We can see a similar proportion, although for females it is slightly bigger.
+
+**Transaction Method**
+
+```{r}
+
+ggplot(data = sampled_train_set, aes(x = Use_Chip, fill = Fraud)) +
+  geom_bar(position = "stack") +
+  labs(title = "Fraudulent Transactions by Transaction Method", x = "Use Chip", y = "Count", fill = "Fraud")
+```
+
+We can see that online transactions present the most significant vulnerability to fraud, as the majority are fraudulent.
+
+```{r}
+
+
+ggplot(data = sampled_train_set, aes(x = as.factor(Year))) +
+  geom_bar(aes(y = after_stat(count), fill = Fraud, color = Fraud), stat = "count") +
+  labs(title = "Number of Fraudulent Transactions by Year", x = "Year", y = "Count") +
+  scale_fill_manual(values = c("#F8766D", "#00BFC3" ), name = "Fraud") +  # Specify fill colors
+  #scale_color_manual(values = c("darkred", "darkblue"), name = "Fraud") +  # Specify border colors
+  theme_minimal() +
+  coord_flip()  # Rotate the plot
+```
+
+The provided statement suggests a concerning trend in the 21st century, with a consistent rise in the number of fraud cases year by year, culminating in a peak during the years 2007-2008, coinciding with the Great Recession. This correlation between the surge in fraud and the economic downturn may indicate a heightened vulnerability to fraudulent activities during periods of financial stress. The Great Recession, characterized by widespread economic challenges, likely created an environment conducive to fraudulent behavior, with individuals and organizations exploiting vulnerabilities for financial gain. This observation underscores the complex relationship between economic conditions and fraudulent activities, emphasizing the need for vigilance and effective preventive measures during times of economic instability.
+
+```{r}
+
+ggplot(data = sampled_train_set, aes(x = as.factor(Month))) +
+  geom_bar(aes(y = after_stat(count), fill = Fraud, color = Fraud), stat = "count") +
+  labs(title = "Number of Fraudulent Transactions by Month", x = "Month", y = "Count") +
+  scale_fill_manual(values = c("#F8766D", "#00BFC3" ), name = "Fraud") +  # Specify fill colors
+  #scale_color_manual(values = c("darkred", "darkblue"), name = "Fraud") +  # Specify border colors
+  theme_minimal() +
+  coord_flip()  # Rotate the plot
+
+```
+
+The distribution of fraud cases across months doesn't show significant variations. This observation and is indicative that fraudulent activities might not be strongly influenced by the specific month.
+
+## Feature Selection
+
+Later there will be used more sophisticated ways for doing this.
+
+Let's consider variables for potential removal based on various criteria:
+
+1.  *Identifiers:* "User_id" and "Card_id" are likely unique identifiers and may not contribute much predictive power to the model. As well as "Person" which corresponds with the name of the person.
+
+2.  *Location Information:* "Merchant_Name," "Address," "Zipcode," "Latitude," and "Longitude" , because they are not relevant. In addition to this, we are going to remove "Merchant_State" as there are too many cells with empty strings ""
+
+3.  *"Current_Age"* : As we have already discretize the age and we have "Age_Group"
+
+4.  *Date and Time Components:* "Year," "Month," "Day," and "Time" might be redundant if we already have a variable like "Date" that captures this information.
+
+5.  *"Card_on_Dark_Web"*: As all its values are "No", it does not provide any information.
+
+6.  *"MCC" (Merchant Category Code):* Remove it as there are too many codes.
+
+```{r}
+
+
+sampled_train_set =  sampled_train_set %>% dplyr::select(-User_id, -Card_id, -Person, -Merchant_Name, -Address, -Zipcode, -Latitude, -Longitude, -Merchant_State,- Current_Age, -Year, -Month, -Day, -Time, -Card_on_Dark_Web, -MCC)
+
+sampled_test_set =   sampled_test_set %>% dplyr::select(-User_id, -Card_id, -Person, -Merchant_Name, -Address, -Zipcode, -Latitude, -Longitude, -Merchant_State,- Current_Age, -Year, -Month, -Day, -Time, -Card_on_Dark_Web, -MCC)
+
+
+```
+
+```{r}
+fwrite(sampled_train_set, "sampled_train_set_class.csv")
+fwrite(sampled_test_set, "sampled_test_set_class.csv")
+```
+
+```{r}
+sampled_train_set_class <- read.csv("sampled_train_set_class.csv")
+sampled_test_set_class <- read.csv("sampled_test_set_class.csv")
+
+```
+
+This project began with 36 variables, and know it has 16.
+
+# CLASSIFICATION
+
+## Statistical Tools for Classification
+
+### Penalized Logistic Regression
+
+(lab customer analysis)
+
+**Introduction to Logistic Regression**
+
+Penalized logistic regression, specifically implemented through the glmnet package in R, offers several advantages for fraud classification tasks with numerous variables. The regularization techniques, such as Lasso (L1) and Ridge (L2), address challenges associated with high-dimensional datasets, preventing overfitting and improving generalization performance. By automatically selecting relevant variables and stabilizing coefficients, penalized logistic regression enhances the model's interpretability and efficiency in the presence of multicollinearity. glmnet's flexibility allows for the fine-tuning of regularization parameters through techniques like cross-validation, enabling the development of a more robust and parsimonious fraud detection model that not only excels in prediction but also provides insights into the underlying patterns contributing to fraudulent activities.
+
+**Applicability in Fraud Classification**
+
+Logistic regression proves to be a valuable tool for fraud classification due to its simplicity, interpretability, and effectiveness in handling binary outcomes. In fraud detection, the goal is to distinguish between legitimate and fraudulent transactions or activities. Logistic regression excels in this context by modeling the probability of an event (fraudulent or not) based on a set of features. The coefficients of the logistic regression model provide insights into the impact of each feature on the likelihood of fraud, facilitating the identification of key factors contributing to fraudulent behavior. Moreover, logistic regression is less prone to overfitting, making it robust with limited data and offering a transparent decision-making process crucial for understanding and validating predictions in sensitive applications like fraud detection.
+
+**Interpretable and Efficient Fraud Detection**
+
+The interpretability of logistic regression enhances its appeal in fraud classification scenarios where explainability is vital. Stakeholders, investigators, and decision-makers can easily comprehend the factors influencing the model's predictions, fostering trust in the decision-making process. Logistic regression is computationally efficient, making it well-suited for real-time or near-real-time fraud detection systems, where quick and accurate decisions are imperative. Its ability to handle high-dimensional data and adapt to changing circumstances further solidifies logistic regression as a pragmatic choice for fraud classification, providing a balance between simplicity, interpretability, and predictive performance.
+
+The **ctrl configuration** for the caret package's train function establishes a robust training control structure for implementing penalized logistic regression using techniques like Lasso or Ridge regularization. The choice of 5-fold cross-validation (method = "cv", number = 5) ensures a thorough evaluation of model performance by repeatedly splitting the dataset into training and testing sets. This aids in mitigating overfitting and provides a more accurate estimate of the model's effectiveness on unseen data. Additionally, setting classProbs = TRUE enables the generation of class probabilities, a crucial aspect in fraud detection where understanding the likelihood of an event being fraudulent is essential. The verboseIter = TRUE setting facilitates monitoring and reporting the progress of model training iterations, enhancing transparency and aiding in the interpretation of the penalized logistic regression results. This control structure, tailored for your specific project requirements, contributes to the development of a reliable and interpretable fraud detection model.
+
+**lrFit** represents the result of training a penalized logistic regression model using the glmnet algorithm. The logistic regression model predicts the binary outcome variable "Fraud" based on all available predictor variables in the dataset. The model undergoes hyperparameter tuning with a grid search over alpha and lambda values to optimize its performance. Training is conducted on a subset of the dataset (sampled_train_set) with 5-fold cross-validation, enabling robust evaluation. Additionally, the model is assessed using Cohen's Kappa, a suitable metric for imbalanced classification tasks, and preprocessing involves centering and scaling predictor variables. The resulting lrFit encapsulates a well-tailored logistic regression model for fraud detection, addressing both the complexities of the dataset and the specific requirements of the project.
+
+```{r}
+### Use_Chip
+sampled_train_set_class$Use_Chip= factor(x = sampled_train_set_class$Use_Chip, 
+                                  levels = c("Chip", "Swipe", "Online"),
+                                  labels =  c("Chip", "Swipe", "Online")
+                                  )
+
+sampled_test_set_class$Use_Chip= factor(x = sampled_test_set_class$Use_Chip, 
+                                  levels = c("Chip", "Swipe", "Online"),
+                                  labels =  c("Chip", "Swipe", "Online")
+                                  )
+
+
+### Card_Type
+sampled_train_set_class$Card_Type = factor(x = sampled_train_set_class$Card_Type,
+                                    levels = c("Debit", "Credit"),
+                                   labels = c("Debit", "Credit")
+                                   )
+
+sampled_test_set_class$Card_Type = factor(x = sampled_test_set_class$Card_Type,
+                                    levels = c("Debit", "Credit"),
+                                   labels = c("Debit", "Credit")
+                                   )
+
+
+
+
+### Gender
+sampled_train_set_class$Gender = factor(x = sampled_train_set_class$Gender,
+                                levels = c("Female", "Male"),
+                                labels = c("Female", "Male") )
+
+sampled_test_set_class$Gender = factor(x = sampled_test_set_class$Gender,
+                                levels = c("Female", "Male"),
+                                labels = c("Female", "Male") )
+
+
+### Fraud
+sampled_train_set_class$Fraud = factor(x = sampled_train_set_class$Fraud)
+sampled_test_set_class$Fraud = factor(x = sampled_test_set_class$Fraud)
+
+### Merchant_City 
+sampled_train_set_class$Merchant_City = as.factor(sampled_train_set_class$Merchant_City)
+sampled_test_set_class$Merchant_City = as.factor(sampled_test_set_class$Merchant_City)
+
+
+
+### City
+sampled_train_set_class$City = as.factor(sampled_train_set_class$City)
+sampled_test_set_class$City = as.factor(sampled_test_set_class$City)
+
+### State
+sampled_train_set_class$State = as.factor(sampled_train_set_class$State)
+sampled_test_set_class$State = as.factor(sampled_test_set_class$State)
+
+# Assuming that Year, Month, and Day are already numeric
+sampled_train_set_class$Date <- as.Date(sampled_train_set_class$Date)
+sampled_test_set_class$Date <- as.Date(sampled_test_set_class$Date)
+
+
+sampled_train_set_class$Age_Group = as.factor(sampled_train_set_class$Age_Group)
+sampled_test_set_class$Age_Group = as.factor(sampled_test_set_class$Age_Group)
+                 
+
+
+```
+
+```{r}
+sampled_train_set_class =  sampled_train_set_class %>% dplyr::select(-Merchant_City, -City,-State)
+sampled_test_set_class =  sampled_test_set_class %>% dplyr::select(-Merchant_City, -City, -State)
+
+```
+
+```{r}
+set.seed(432)
+# Assuming you have the levels defined for "Age_Group" in your training set
+age_levels <- levels(sampled_train_set_class$Age_Group)
+
+# Ensure the same levels in the test set to avoid errors
+sampled_test_set_class$Age_Group <- factor(sampled_test_set_class$Age_Group, levels = age_levels)
+
+ctrl <- trainControl(method = "cv", number = 5,
+                     classProbs = TRUE, 
+                     verboseIter=T)
+
+# Now, you can fit the model and make predictions
+lrFit <- train(Fraud ~ ., 
+               method = "glmnet",
+               tuneGrid = expand.grid(alpha = seq(0, 1, 0.1), lambda = seq(0, .1, 0.02)),
+               metric = "Kappa",
+               data = sampled_train_set_class,
+               preProcess = c("center", "scale"), 
+               trControl = ctrl)
+
+
+```
+
+```{r}
+print(lrFit)
+
+```
+
+-   Selected tuning parameters: Alpha: The alpha parameter in logistic regression controls the type of regularization applied. In this case, it is set to 0.5, indicating a combination of L1 (Lasso) and L2 (Ridge) regularization.
+
+    Lambda: Lambda is the regularization strength. lambda of 0.02
+
+Accuracy: 75.7% Kappa: 5.3% (moderate agreement beyond chance) The accuracy tells you the proportion of correctly predicted instances, while Kappa takes into account the possibility of agreement occurring by chance.
+
+Following model training, the evaluation focused on assessing the model's performance using a separate test set. The predict function was utilized to generate predictions on the test set, and a confusion matrix was computed to summarize the classification results.
+
+```{r}
+
+lrPred <- predict(lrFit, sampled_test_set_class)
+lrPred <- factor(lrPred, levels = levels(sampled_test_set_class$Fraud))
+
+
+sampled_test_set_class$Fraud <- factor(sampled_test_set_class$Fraud, levels = c("No", "Yes"))
+
+# Obtain the confusion matrix
+cm <- confusionMatrix(lrPred, sampled_test_set_class$Fraud, positive = "Yes")
+print(cm)
+
+```
+
+Sensitivity (True Positive Rate): 60%. This indicates that the model correctly identifies 60% of the actual fraudulent transactions.
+
+Specificity (True Negative Rate): 88.56%. This suggests that the model correctly identifies 88.56% of the non-fraudulent transactions.
+
+In summary, while the model achieves high specificity (identifying non-fraudulent transactions), the sensitivity is quite low (identifying fraudulent transactions). The positive predictive value is very low, indicating a high rate of false positives. This suggests that the model may not be effectively capturing instances of fraud and may need further refinement or different modeling approaches.
+
+#### Variable importance
+
+```{r}
+lr_imp <- varImp(lrFit, scale = F)
+plot(lr_imp, scales = list(y = list(cex = .95)))
+
+```
+
+The variable importance analysis from the glmnet penalized logistic regression model identifies "Use_ChipOnline" as the most influential variable, with a substantial importance score of 0.798080. This suggests that the method of transaction (online or not) significantly impacts the model's predictions. "Amount" and "Use_ChipSwipe" also exhibit high importance scores, emphasizing the importance of transaction amount and chip usage. "Num_Credit_Cards" and various age groups, such as "Age_Group26-35",also contribute significantly. These insights provide a valuable understanding of the key drivers influencing the logistic regression model's predictions.
+
+#### The ROC curve to improve the model.
+
+A ROC curve is a graph showing the performance of a classification model at all classification thresholds. This curve plots two parameters:
+
+```         
+- 1. True Positive Rate in the y-axis.
+- 2. False Positive Rate in the x-axis.
+```
+
+```{r}
+
+lrProb = predict(lrFit, sampled_test_set_class, type="prob")
+
+plot.roc(sampled_test_set_class$Fraud, lrProb[,2],col="darkblue", print.auc = TRUE,  auc.polygon=TRUE, grid=c(0.1, 0.2),
+         grid.col=c("green", "red"), max.auc.polygon=TRUE,
+         auc.polygon.col="lightblue", print.thres=TRUE)
+```
+
+The ROC plotted curve indicates that the logistic regression model has an AUC (Area Under the Curve) value of 0.806. This value summarizes the model's performance across various classification thresholds. An AUC value closer to 1 indicates better discriminative ability.
+
+Using the provided threshold, the model was adjusted to establish a balance between sensitivity-specificity.
+
+```{r}
+# Set the threshold
+threshold = 0.404
+
+# Predict probabilities using the logistic regression model
+lrProb = predict(lrFit, sampled_test_set_class, type="prob")
+
+#sampled_test_set_class <- head(sampled_test_set_class, -1)
+
+# Initialize predictions as "No"
+lrPred = rep("No", nrow(sampled_test_set_class))
+
+# Update predictions based on the specified threshold
+lrPred[which(lrProb[,2] > threshold)] = "Yes"
+
+# Calculate the confusion matrix
+cm2 <- confusionMatrix(factor(lrPred), sampled_test_set_class$Fraud, positive = "Yes")
+print(cm2)
+```
+
+In the context of fraud detection, achieving a balance between sensitivity and specificity is crucial. Sensitivity represents the ability to correctly identify fraudulent transactions. With a Sensitivity of 80% and Specificity of 80.5%, it seems to be a good model.
+
+## Machine Lerning Tools for Classification
+
+### Decision Trees
+
+Decision trees are a powerful machine learning tool commonly used for both classification and regression tasks. They work by recursively partitioning the data into subsets based on the values of different features, ultimately leading to a tree-like structure where each leaf node represents a class label (in the case of classification) or a predicted value (in the case of regression).
+
+**Step 1: Set Hyperparameters for Decision Tree Model**
+
+In the initial phase of building our fraud detection model using a decision tree, we set specific hyperparameters to guide the training process. Hyperparameters are configuration settings that influence the behavior of the machine learning algorithm. For our decision tree model, we carefully selected hyperparameters to strike a balance between model complexity and generalization to new, unseen data.
+
+```{r}
+# Hyper-parameters
+control = rpart.control(minsplit = 30, maxdepth = 10, cp=0.01)
+
+```
+
+**Step 2: Building the Decision Tree Model**
+
+The next step in our fraud detection project involves constructing a decision tree model. The model is trained on the sampled training dataset (sampled_train_set_class) using the rpart function. The formula Fraud \~ . indicates that we are predicting the "Fraud" variable using all other available features. The method = "class" argument specifies that this is a classification problem.
+
+```{r}
+set.seed(123)
+model = Fraud ~.
+dtFit <- rpart(model, data=sampled_train_set_class, method = "class", control = control)
+summary(dtFit)
+```
+
+Better interpretation with visualization
+
+```{r}
+rpart.plot(dtFit, digits=3)
+```
+
+In constructing our decision tree model using the CART algorithm, the most influential variables are identified based on variable importance analysis. According to the model, the primary factors contributing to the classification of transactions are Use_Chip, Amount, and Date, with Use_Chip being the most crucial. This variable importance ranking suggests that the presence or absence of chip usage in a transaction holds significant discriminatory power in predicting fraud.
+
+The leaves of the tree represent the predicted outcomes ("No" or "Yes" for fraud), providing a clear path of decision-making.
+
+For instance, the model's emphasis on the variable Date suggests that certain periods or temporal trends are indicative of potential fraud. This aligns with common fraud detection practices, where anomalies or irregularities in transaction patterns over time may signal fraudulent activity. Additionally, the consideration of Amount and Num_Credit_Cards further reinforces the idea that unusually high transaction amounts or the use of multiple credit cards could be red flags for fraud.
+
+By highlighting these specific variables in the "Yes" class, the decision tree model provides actionable insights for fraud detection. Financial institutions can leverage this information to enhance monitoring during identified high-risk periods, scrutinize transactions with unusually high amounts, and pay attention to cases involving an unusual number of credit cards—all crucial aspects in proactively combating fraudulent activities.
+
+**Step 3: Prediction**
+
+```{r}
+# Assuming you have the levels defined for "Age_Group" in your training set
+age_levels <- levels(sampled_train_set_class$Age_Group)
+
+# Ensure the same levels in the test set to avoid errors
+sampled_test_set_class$Age_Group <- factor(sampled_test_set_class$Age_Group, levels = age_levels)
+
+dtPred <- predict(dtFit, sampled_test_set_class, type = "class")
+
+cm_dt1 = confusionMatrix(factor(dtPred), sampled_test_set_class$Fraud, positive = "Yes")
+cm_dt1
+```
+
+The decision tree model achieved an overall accuracy of 76.72%, with a 95% confidence interval between 75.15% and 78.24%. However,the specificity (true negative rate) is not ver high at 76.72%, suggesting a not very good ability to correctly identify negative cases. On the other hand, the sensitivity (true positive rate) is relatively high at 80%, indicating that the model identified a good portion of the actual positive cases.
+
+In summary, while the decision tree model shows good sensitivity, it struggles with specificity. This suggests that the model may benefit from further tuning or alternative approaches to improve its performance in detecting fraudulent transactions.
+
+#### Cross-Validation for tunning Hyperparameters
+
+To fine-tune the hyperparameters of our decision tree model, we employ the caret package, which offers a convenient framework for hyperparameter tuning through cross-validation. It's crucial for our fraud detection task to focus on maximizing sensitivity, as we prioritize correctly identifying fraudulent transactions. To achieve this, we customize the trainControl settings by specifying the summaryFunction as twoClassSummary. This setting enables us to calculate sensitivity and specificity during the cross-validation process. Additionally, we explicitly set the positive class as "Yes," ensuring that the optimization process aligns with our goal of maximizing sensitivity. The twoClassSummary function allows us to evaluate sensitivity as the metric while performing hyperparameter tuning, providing a more accurate reflection of our model's performance for fraud detection.
+
+```{r}
+set.seed(123)
+# Example: Optimize based on sensitivity with positive class = Yes
+# Example: Optimize based on sensitivity with positive class = "Yes"
+ctrl <- trainControl(method = "cv", number = 5, summaryFunction = twoClassSummary, classProbs = TRUE)
+
+caret.fit <- train(Fraud ~ ., 
+                   data = sampled_train_set_class, 
+                   method = "rpart",
+                   control = rpart.control(minsplit = 40, maxdepth = 12),
+                   trControl = ctrl,
+                   tuneLength = 10,
+                   metric = "Sens")
+
+
+caret.fit
+```
+
+The selected optimal model has a cp value of 0.4874715. It's important to note that sensitivity was prioritized during model selection to enhance the detection of fraudulent transactions (93%), even at the expense of a lower specificity (36%). This decision aligns with the goal of minimizing false negatives in the context of fraud detection.
+
+```{r}
+plot(caret.fit)
+```
+
+Now, let's observe the predictions:
+
+```{r}
+dt_pred <- predict(caret.fit, sampled_test_set_class)
+# Refactor levels of dt_pred to match those of sampled_test_set_class$Fraud
+dt_pred <- factor(dt_pred, levels = levels(sampled_test_set_class$Fraud))
+
+cm_dt2 <- confusionMatrix(dt_pred, sampled_test_set_class$Fraud, positive = "Yes")
+cm_dt2
+```
+
+Not good at all
+
+```{r}
+dt_pred <- predict(caret.fit, sampled_test_set_class, type = "prob")
+threshold <- 0.4
+dtPred <- ifelse(dt_pred[, "Yes"] > threshold, "Yes", "No")
+dtPred <- factor(dtPred, levels = levels(sampled_test_set_class$Fraud))
+
+
+cm_dt_adjusted <- confusionMatrix(factor(dtPred), sampled_test_set_class$Fraud, positive = "Yes")
+
+cm_dt_adjusted
+```
+
+Despite efforts to optimize the threshold for sensitivity, the decision tree model, as evaluated through caret and threshold adjustment, exhibits significant limitations, particularly in terms of specificity. The model struggles to correctly identify negative cases, leading to a high number of false positives. This deficiency is indicative of a poor overall model performance, as it compromises the ability to distinguish between fraudulent and non-fraudulent transactions effectively. In practical terms, this signifies that the model lacks the necessary precision and accuracy required for reliable fraud detection. Further refinement or exploration of alternative modeling approaches may be necessary to address these shortcomings and enhance the model's effectiveness in real-world applications.
+
+### Random Forest
+
+The random forest model is being trained on the sampled training set, utilizing 200 decision trees (ntree=200). The mtry=10 parameter specifies the number of randomly selected predictors at each split, contributing to the diversity of the individual trees. The importance=TRUE setting allows the model to calculate variable importance measures, providing insights into the significance of each predictor. Additionally, the do.trace=T option enables the tracking of the training process, allowing for the monitoring of the model's progression. This ensemble learning approach is expected to enhance predictive accuracy and robustness by leveraging the collective knowledge of multiple decision trees.
+
+```{r}
+set.seed(123)
+rf.train <- randomForest(Fraud ~., data=sampled_train_set_class, ntree=200, mtry=10, importance=TRUE, do.trace=T)
+```
+
+**Prediction**
+
+```{r}
+rf.pred <- predict(rf.train, newdata=sampled_test_set_class)
+cm_rf = confusionMatrix(rf.pred, sampled_test_set_class$Fraud, positive = "Yes")
+cm_rf
+
+```
+
+The confusion matrix for the random forest model indicates promising results. The model achieved an accuracy of approximately 84.76%, with a sensitivity of 100% and specificity of 84.73%. The high sensitivity suggests that the model effectively identifies instances of fraudulent transactions, while the specificity demonstrates a notable ability to correctly classify non-fraudulent transactions.
+
+#### Cross-Validation for tunning Hyperparameters
+
+```{r}
+set.seed(123)
+# Let's obtain a new model changing the hyperparameters.
+rf.train <- train(Fraud ~., 
+                  method = "rf", 
+                  data = sampled_train_set_class,
+                  preProcess = c("center", "scale"),
+                  ntree = 200,
+                  tuneGrid = expand.grid(mtry=c(6,8,10)),
+                  trControl = trainControl(method = "cv", number = 5))
+
+# Finally, it is time to predict our model and  check the effectiveness using
+# the confusion matrix (check above for further explanations).
+rf.train$results
+rf.train
+```
+
+The cross-validation results for tuning the hyperparameters of the random forest model indicate that setting mtry to 10 achieves the highest accuracy of approximately 84.5%. The corresponding Kappa value is 0.7016, indicating substantial agreement beyond chance. This suggests that a feature subset size of 6 provides the best balance between accuracy and generalization. The model has been pre-processed with centering and scaling, which can enhance the algorithm's performance. These findings will guide the configuration of the final random forest model for fraud detection.
+
+**Prediction**
+
+```{r}
+rfPred = predict(rf.train, newdata=sampled_test_set_class)
+cm_rf2 <- confusionMatrix(factor(rfPred), sampled_test_set_class$Fraud, positive = "Yes")
+cm_rf2
+```
+
+The confusion matrix for the random forest CV model indicates promising results. The model achieved an accuracy of approximately 85.6%, with a sensitivity of 100% and specificity of 85.57%. The high sensitivity suggests that the model effectively identifies instances of fraudulent transactions, while the specificity demonstrates a notable ability to correctly classify non-fraudulent transactions.
+
+### Gradient Boosting
+
+```{r}
+# Assuming Date is in a date format, convert it to numeric
+set.seed(123)
+sampled_train_set_class$Date <- as.numeric(sampled_train_set_class$Date)
+
+
+GBM.train <- gbm(ifelse(sampled_train_set_class$Fraud=="No",0,1) ~.,
+                 data=sampled_train_set_class,
+                 distribution= "bernoulli",
+                 n.trees=250,
+                 shrinkage = 0.01,
+                 interaction.depth=2,
+                 n.minobsinnode = 8)
+```
+
+**Prediction**
+
+```{r}
+# Assuming Date is in a date format, convert it to numeric for the test set
+sampled_test_set_class$Date <- as.numeric(sampled_test_set_class$Date)
+
+# Make predictions on the test set
+GBM.pred <- predict(GBM.train, newdata = sampled_test_set_class, n.trees = 250, type = "response")
+
+# Convert the probabilities to binary predictions using a threshold (e.g., 0.5)
+threshold <- 0.5
+GBM.binary_pred <- ifelse(GBM.pred > threshold, "Yes", "No")
+
+# Create a confusion matrix
+cm_gbm1 <- confusionMatrix(factor(GBM.binary_pred), sampled_test_set_class$Fraud, positive = "Yes")
+
+# Print the confusion matrix and statistics
+cm_gbm1
+
+
+```
+
+The confusion matrix for the Gradient boosting model indicates really good results. The model achieved an accuracy of approximately 87.46%, with a sensitivity of 100% and specificity of 87.44%. The high sensitivity suggests that the model effectively identifies instances of fraudulent transactions, while the specificity demonstrates a notable ability to correctly classify non-fraudulent transactions.
+
+## Model Selection
+
+```{r}
+
+
+results_class <- rbind(
+  c("PENALIZED LOGISTIC REGRESSION 1:", cm$overall["Accuracy"], cm$byClass["Sensitivity"], cm$byClass["Specificity"]),
+  c("PENALIZED LOGISTIC REGRESSION 2:", cm2$overall["Accuracy"], cm2$byClass["Sensitivity"], cm2$byClass["Specificity"]),
+  c("DECISION TREES (OPTION 1)", cm_dt1$overall["Accuracy"], cm_dt1$byClass["Sensitivity"], cm_dt1$byClass["Specificity"]),
+  c("DECISION TREES (CV 1)", cm_dt2$overall["Accuracy"], cm_dt2$byClass["Sensitivity"], cm_dt2$byClass["Specificity"]),
+  c("DECISION TREES (CV 2)", cm_dt_adjusted$overall["Accuracy"], cm_dt_adjusted$byClass["Sensitivity"], cm_dt_adjusted$byClass["Specificity"]),
+  c("RANDOM FORESTS TREES (OPTION 1)", cm_rf$overall["Accuracy"], cm_rf$byClass["Sensitivity"], cm_rf$byClass["Specificity"]),
+  c("RANDOM FORESTS (CV)", cm_rf2$overall["Accuracy"], cm_rf2$byClass["Sensitivity"], cm_rf2$byClass["Specificity"]),
+  c("GRADIENT BOOSTING ", cm_gbm1$overall["Accuracy"], cm_gbm1$byClass["Sensitivity"], cm_gbm1$byClass["Specificity"])
+)
+
+colnames(results_class) <- c("Model", "Accuracy", "Sensitivity", "Specificity")
+
+
+```
+
+```{r}
+
+
+# Convert results_class to a data frame
+results_df <- as.data.frame(results_class, stringsAsFactors = FALSE)
+
+# Print the table
+knitr::kable(results_df, format = "markdown")
+```
+
+In the process of model selection for fraud classification, there has been meticulously evaluated various statistical and machine learning algorithms to identify the most effective approach. Leveraging statistical tools, such as penalized logistic regression, yielded promising results, as demonstrated by PENALIZED LOGISTIC REGRESSION 2, where careful threshold selection optimized performance metrics. While these methods showcased commendable outcomes, it was recognized the superior performance of machine learning tools. Notably, the evaluation highlighted that machine learning models, specifically GRADIENT BOOSTING, consistently outperformed statistical counterparts, exhibiting the highest accuracy, perfect sensitivity, and a robust specificity at 87.56%. The implementation of GRADIENT BOOSTING emerged as the preferred choice for its ability to strike a balance between sensitivity and specificity, thereby enhancing the model's capability to identify instances of fraud while minimizing false positives.
+
+The model selection process underscored the importance of considering not only accuracy but also sensitivity and specificity in the context of fraud detection. GRADIENT BOOSTING's superior performance metrics positioned it as the optimal choice, emphasizing the significance of leveraging advanced machine learning techniques in scenarios where achieving a delicate balance between sensitivity and specificity is paramount. This selection aligns with the project's overarching goal of implementing a robust and accurate fraud detection system that minimizes both false positives and false negatives, thereby enhancing the efficiency of fraud identification within the given dataset.
+
+## Conclusion of Classification
+
+In the pursuit of developing an effective fraud detection system, the project encountered various challenges, including the management of extensive datasets and addressing the complexities posed by imbalanced classes. It adeptly navigated these hurdles by strategically sampling data and implementing a variation of undersampling techniques to balance the class distribution. The size of the datasets presented computational challenges, leading to the adoption of efficient strategies to accelerate the project's pace.
+
+The project followed a systematic workflow that began with extensive preprocessing, encompassing data cleaning, feature engineering, and scaling. Data exploration and visualization were pivotal in gaining insights into the dataset's characteristics. A combination of statistical and machine learning tools was employed to uncover patterns, relationships, and potential features for classification. The iterative process involved tuning hyperparameters, selecting models, and optimizing performance to achieve the desired results.
+
+Despite the intricacies of the task, Gradient Boosting emerged as the most adept solution for fraud detection. This model, characterized by a high accuracy of 87.56%, perfect sensitivity, and a specificity of 87.54%, demonstrated a remarkable ability to detect fraudulent transactions while minimizing false positives. The comprehensive approach taken in this project, from data exploration to model selection, underscores the significance of a well-structured methodology in the realm of fraud detection. The robustness of the chosen model, Gradient Boosting, and the insights gained from this process collectively contribute to a powerful and practical fraud detection system with real-world applicability.
+
+
+
+
+
+
+
+# REGRESSION
+
+
+
+## Intro: Predicting Transaction Amounts as a Window into Risk
+
+Complementing the classification task, our regression focus delves into predicting transaction amounts, a critical dimension that adds granularity to our fraud detection system. This predictive lens offers insights into transaction anomalies, with a specific emphasis on understanding and assessing the risk associated with varying transaction sizes.
+
+Why is this Useful?
+
+-   Anomaly Identification: Predicting transaction amounts aids in identifying anomalous patterns or irregularities in transaction sizes, a key indicator of potential fraud.
+
+-   Dynamic Risk Assessment: Continuous prediction allows our system to dynamically adapt to emerging fraud dynamics, ensuring a proactive stance against evolving fraudulent activities.
+
+-   User-Centric Analysis: A deeper understanding of user-specific transaction amounts allows for nuanced anomaly detection, tailoring our approach to individual spending behaviors.
+
+
+
+## Visualization
+
+Again, let's import the datasets. 
+```{r}
+sampled_train_set_class <- read.csv("sampled_train_set_class.csv")
+sampled_test_set_class <- read.csv("sampled_test_set_class.csv")
+
+```
+
+We need to repeat some preprocessing steps, as when importing the datasets, some of the features are converted to "chr" again.
+```{r}
+### Use_Chip
+sampled_train_set_class$Use_Chip= factor(x = sampled_train_set_class$Use_Chip, 
+                                  levels = c("Chip", "Swipe", "Online"),
+                                  labels =  c("Chip", "Swipe", "Online")
+                                  )
+
+sampled_test_set_class$Use_Chip= factor(x = sampled_test_set_class$Use_Chip, 
+                                  levels = c("Chip", "Swipe", "Online"),
+                                  labels =  c("Chip", "Swipe", "Online")
+                                  )
+
+
+### Card_Type
+sampled_train_set_class$Card_Type = factor(x = sampled_train_set_class$Card_Type,
+                                    levels = c("Debit", "Credit"),
+                                   labels = c("Debit", "Credit")
+                                   )
+
+sampled_test_set_class$Card_Type = factor(x = sampled_test_set_class$Card_Type,
+                                    levels = c("Debit", "Credit"),
+                                   labels = c("Debit", "Credit")
+                                   )
+
+
+
+
+### Gender
+sampled_train_set_class$Gender = factor(x = sampled_train_set_class$Gender,
+                                levels = c("Female", "Male"),
+                                labels = c("Female", "Male") )
+
+sampled_test_set_class$Gender = factor(x = sampled_test_set_class$Gender,
+                                levels = c("Female", "Male"),
+                                labels = c("Female", "Male") )
+
+
+
+### Merchant_City 
+sampled_train_set_class$Merchant_City = as.factor(sampled_train_set_class$Merchant_City)
+sampled_test_set_class$Merchant_City = as.factor(sampled_test_set_class$Merchant_City)
+
+
+
+### City
+sampled_train_set_class$City = as.factor(sampled_train_set_class$City)
+sampled_test_set_class$City = as.factor(sampled_test_set_class$City)
+
+### State
+sampled_train_set_class$State = as.factor(sampled_train_set_class$State)
+sampled_test_set_class$State = as.factor(sampled_test_set_class$State)
+
+# Assuming that Year, Month, and Day are already numeric
+sampled_train_set_class$Date <- as.Date(sampled_train_set_class$Date)
+sampled_test_set_class$Date <- as.Date(sampled_test_set_class$Date)
+
+
+sampled_train_set_class$Age_Group = as.factor(sampled_train_set_class$Age_Group)
+sampled_test_set_class$Age_Group = as.factor(sampled_test_set_class$Age_Group)
+                 
+
+
+```
+
+For this task, Fraud variable is going to be removed. The model can then focus on learning patterns related to transaction amounts that are not biased by the binary fraud label.
+
+```{r}
+sampled_train_set_class =  sampled_train_set_class %>% dplyr::select(-Fraud)
+sampled_test_set_class =  sampled_test_set_class %>% dplyr::select(-Fraud)
+
+```
+
+
+Let's recover some variables for better predictions in regression
+
+```{r}
+
+
+sampled_train_set_no_NAs.csv <- read.csv("sampled_train_set_no_NAs.csv")
+sampled_test_set_no_NAs.csv <- read.csv("sampled_test_set_no_NAs.csv")
+
+sampled_train_set_class$Current_Age = sampled_train_set_no_NAs.csv$Current_Age
+sampled_test_set_class$Current_Age = sampled_test_set_no_NAs.csv$Current_Age
+
+sampled_train_set_class$Latitude = sampled_train_set_no_NAs.csv$Latitude
+sampled_test_set_class$Latitude = sampled_test_set_no_NAs.csv$Latitude
+
+sampled_train_set_class$Longitude = sampled_train_set_no_NAs.csv$Longitude
+sampled_test_set_class$Longitude = sampled_test_set_no_NAs.csv$Longitude
+
+```
+
+
+
+
+We have already made visualizations of the amount distribution, we need to remember that they majority fall in the range of (0,250) $
+
+
+
+### Boxplot of Amounts by Categorical Variables
+
+```{r}
+
+
+ggplot(sampled_train_set_class, aes(fill = Use_Chip, y = Amount)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Amounts by Use of Chip", 
+       x = "Use Chip", y = "Amount") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+
+
+```{r}
+
+
+ggplot(sampled_train_set_class, aes(fill = Gender, y = Amount)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Amounts by Gender", 
+       x = "Gender", y = "Amount") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+
+```{r}
+
+
+ggplot(sampled_train_set_class, aes(fill = Card_Type, y = Amount)) +
+  geom_boxplot() +
+  labs(title = "Boxplot of Amounts by Card Type", 
+       x = "Card Type", y = "Amount") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+We don't much difference between the different values for the categorical variables.
+
+
+**Bar Chart of Amounts by Age Group**
+
+Visualize the average transaction amounts for different age groups.
+It can be seen that there is not much difference actually
+```{r}
+library(ggplot2)
+ggplot(sampled_train_set_class, aes(x = Age_Group, y = Amount, fill = Age_Group)) +
+  geom_bar(stat = "summary", fun = "mean", position = "dodge") +
+  labs(title = "Average Amounts by Age Group", x = "Age Group", y = "Average Amount") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+
+**Scatter Plot of Amounts and Credit Limit**
+
+```{r}
+plot(sampled_train_set_class$Credit_Limit, sampled_train_set_class$Amount, main = "Scatter Plot of Amounts and Credit Limit",
+     xlab = "Credit Limit", ylab = "Amount", col = "blue") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+
+
+**Time Series Plot of Amounts**
+
+```{r}
+
+
+ggplot(sampled_train_set_class, aes(x = Date, y = Amount, group = 1)) +
+  geom_line(color = "blue") +
+  labs(title = "Time Series Plot of Transaction Amounts", x = "Date", y = "Amount") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+
+
+```{r}
+
+ggplot(sampled_train_set_class, aes(x = factor(month(Date, label = TRUE)), y = Amount, fill = factor(month(Date, label = TRUE)))) +
+  geom_bar(stat = "summary", fun = "mean", position = "dodge") +
+  labs(title = "Average Amounts by Month", x = "Month", y = "Average Amount", fill = "Month") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+```
+
+While observing the average transaction amounts across different months, we note minimal variation. However, a slight increase is evident in December, likely attributed to Christmas-related expenditures, and in August, possibly due to holiday-related expenses
+
+
+```{r}
+
+ggplot(sampled_train_set_class, aes(x = factor(day(Date)), y = Amount, fill = factor(day(Date))  )) +
+  geom_boxplot() +
+  labs(title = "Distribution of Transaction Amounts by Day", x = "Day of the Month", y = "Amount", fill = "Day") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+
+
+
+```{r}
+# Scatter Plot for Total_Debt and Amount
+ggplot(sampled_train_set_class, aes(x = Total_Debt, y = Amount, color = Age_Group)) +
+  geom_point(alpha = 0.7) +
+  labs(title = "Scatter Plot of Total Debt vs Amount", x = "Total Debt", y = "Amount")
+
+```
+As expected with more debt people make less transactions and of smaller quantities
+
+```{r}
+# Scatter Plot for FICO_Score and Amount
+ggplot(sampled_train_set_class, aes(x = FICO_Score, y = Amount, color =  Age_Group)) +
+  geom_point(alpha = 0.7) +
+  labs(title = "Scatter Plot of FICO Score vs Amount", x = "FICO Score", y = "Amount")
+
+```
+There is no a clear relationship
+
+```{r}
+# Scatter Plot for Yearly_Income_Person and Amount
+ggplot(sampled_train_set_class, aes(x = Yearly_Income_Person, y = Amount, color =  Age_Group)) +
+  geom_point(alpha = 0.7) +
+  labs(title = "Scatter Plot of Yearly Income vs Amount", x = "Yearly Income per Person", y = "Amount")
+```
+
+
+
+```{r}
+
+# Assuming your dataframe is named sampled_train_set_class
+corr_amount <- sort(cor(sampled_train_set_class[, c("Total_Debt", "FICO_Score", "Yearly_Income_Person", "Amount")])["Amount", ], decreasing = TRUE)
+corr_data <- data.frame(variable = names(corr_amount), correlation = corr_amount)
+
+library(ggplot2)
+
+ggplot(corr_data, aes(x = variable, y = correlation)) +
+  geom_bar(stat = "identity", fill = "lightblue") +
+  scale_x_discrete(limits = corr_data$variable) +
+  labs(x = "Predictors", y = "Correlation with Amount", title = "Correlations with Amount") +
+  theme(plot.title = element_text(hjust = 0, size = rel(1.5)),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+It can be seen that the numerical variables are not very related with the Amount.
+
+## Statistical Tools for Regression
+
+### Linear Regression
+
+#### Benchmark
+
+The benchmark serves as our baseline, and in our case, it corresponds to predicting using the mean of transaction amounts. Our models consistently should exhibit higher accuracy compared to this benchmark.
+
+```{r}
+mean(sampled_train_set_class$Amount) # 76.64091
+
+```
+
+```{r}
+benchFit <- lm(Amount ~ 1, data=sampled_train_set_class)
+predictions <- predict(benchFit, newdata=sampled_test_set_class)
+
+
+```
+
+```{r}
+RMSE = sqrt(mean((predictions - sampled_test_set_class$Amount)^2))
+RMSE # 92.78234
+```
+
+#### Simple linear regression
+
+```{r}
+linFit <- lm(Amount ~ Yearly_Income_Person, data=sampled_train_set_class)
+summary(linFit)
+```
+
+The linear regression model aims to predict the Amount variable based on the Yearly_Income_Person predictor. The estimated intercept is 69.44, indicating the expected Amount when Yearly_Income_Person is zero. The coefficient for Yearly_Income_Person is 0.0001588, suggesting that, on average, a one-unit increase in Yearly_Income_Person is associated with an increase of 0.0001588 units in Amount. The p-value for the Yearly_Income_Person coefficient is 0.0293, which is below the conventional significance level of 0.05, suggesting that there is evidence to reject the null hypothesis that the coefficient is zero. However, the low multiple R-squared value (0.0004909) indicates that the model explains only a very small proportion of the variance in Amount. Therefore, while there is a statistically significant relationship between Yearly_Income_Person and Amount, the practical significance might be limited given the small effect size and low explanatory power of the model.
+
+```{r}
+par(mfrow=c(2,2))
+plot(linFit, pch=23 ,bg='orange',cex=2)
+```
+
+
+
+```{r}
+pr.simple = exp(predict(linFit, newdata=sampled_test_set_class))
+cor(sampled_test_set_class$Amount, pr.simple)^2
+```
+This is a really bad model.
+
+
+
+#### Multiple Linear Regression
+
+```{r}
+
+multi_linFit <- lm(Amount ~ Total_Debt + FICO_Score + Yearly_Income_Person, data = sampled_train_set_class)
+
+# Print summary of the multiple regression model
+summary(multi_linFit)
+
+```
+
+In this multiple regression model, the intercept is 41.62, indicating the expected Amount when all predictor variables are zero. Among the predictor variables, only the intercept is statistically significant (p-value = 0.0271), suggesting a potential non-zero intercept. However, the coefficients for Total_Debt, FICO_Score, and Yearly_Income_Person are not statistically significant (p-values > 0.05). The small multiple R-squared value (0.0007607) indicates that the model explains a very small proportion of the variance in Amount. The F-statistic (2.453) and its associated p-value (0.06133) suggest that the overall model may not be statistically significant. Interpretation should be cautious, and further model refinement or consideration of additional variables may be needed.
+
+
+
+```{r}
+pr.multiple = exp(predict(multi_linFit, newdata=sampled_test_set_class))
+cor(sampled_test_set_class$Amount, pr.multiple)^2
+```
+
+This low R-squared value suggests that the multiple regression model may not be effectively capturing the variability in the Amount variable in the test set.
+
+
+#### Cross Validation with Caret
+
+```{r}
+ctrl <- trainControl(method = "repeatedcv", 
+                     number = 5, repeats = 5, allowParallel = TRUE)
+
+
+```
+
+
+As we need to try lots of models, let's save all predictos in the followinf dataframe
+
+```{r}
+test_results <- data.frame(Amount = sampled_test_set_class$Amount)
+```
+
+
+##### Linear Regression
+
+First, define our model
+
+```{r}
+model = Amount ~ Total_Debt + FICO_Score + Yearly_Income_Person
+```
+
+
+Then, we train our model
+
+```{r}
+lm_tune <- train(model, data = sampled_train_set_class, 
+                 method = "lm", 
+                 preProc=c('scale', 'center'),
+                 trControl = ctrl)
+lm_tune
+```
+
+In summary, the linear regression model, after tuning and cross-validation, exhibits an RMSE of 164.9308, an R-squared value of 0.0005890773, and an MAE of 84.50019. While the model provides predictions, the low R-squared value indicates that the predictors may not be effectively explaining the variability in the response variable. 
+
+
+**Prediction**
+
+```{r}
+test_results$lm <- predict(lm_tune, sampled_test_set_class)
+postResample(pred = test_results$lm,  obs = test_results$Amount)
+```
+
+        RMSE     Rsquared          MAE 
+92.608041265  0.006105115 59.978977501 
+
+
+
+**Visualization**
+
+
+```{r}
+ggplot(test_results, aes(x = lm, y = Amount)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, colour = "blue") +
+  labs(title = "Linear Regression Observed VS Predicted", x = "Predicted", y = "Observed") +
+  theme_bw()
+```
+
+We can see that the model don't look really linear
+
+
+
+##### Overfitted Linear Regression
+
+
+First, define our model
+
+```{r}
+model2 = Amount ~ Total_Debt + FICO_Score + Yearly_Income_Person + Credit_Limit + Num_Credit_Cards + Current_Age + Latitude + Longitude
+
+```
+
+
+Then, we train our model
+
+```{r}
+lm_tune2 <- train(model2, data = sampled_train_set_class, 
+                 method = "lm", 
+                 preProc=c('scale', 'center'),
+                 trControl = ctrl)
+lm_tune2
+```
+
+  RMSE      Rsquared      MAE     
+  164.6863  0.0008118477  84.45255
+
+
+**Prediction**
+
+```{r}
+test_results$lm2 <- predict(lm_tune2, sampled_test_set_class)
+postResample(pred = test_results$lm2,  obs = test_results$Amount)
+```
+
+        RMSE     Rsquared          MAE 
+92.542403295  0.002741965 59.770585144 
+
+
+
+**Visualization**
+
+
+```{r}
+ggplot(test_results, aes(x = lm2, y = Amount)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, colour = "blue") +
+  labs(title = "Linear Regression Observed VS Predicted", x = "Predicted", y = "Observed") +
+  theme_bw()
+```
+
+Actually pretty similar than the simple regression.
+
+
+
+
+
+
+### Variable Selection Techniques
+
+
+
+#### Forward regression
+
+The forward regression process incrementally builds the model by selecting predictors one at a time based on their individual contribution. It's important to note that forward regression may not explore all possible combinations of predictors, and the final model may not be the best overall model. It is a greedy algorithm that makes locally optimal choices at each step.
+
+
+
+```{r}
+for_tune <- train(model2, data = sampled_train_set_class, 
+                  method = "leapForward", 
+                  preProc=c('scale', 'center'),
+                  tuneGrid = expand.grid(nvmax = 2:8),
+                  trControl = ctrl)
+
+for_tune
+```
+
+
+The train function with forward variable selection (leapForward method) has been performed on model2 with different values of nvmax. The results indicate the performance metrics (RMSE, Rsquared, MAE) for each value of nvmax. The selected model has nvmax = 2 based on the smallest RMSE value.
+
+
+```{r}
+plot(for_tune)
+```
+
+Now we need to select those best variables 
+
+```{r}
+coef(for_tune$finalModel, for_tune$bestTune$nvmax)
+```
+
+The coefficients for Yearly_Income_Person and Num_Credit_Cards indicate the estimated change in the response variable for a one-unit increase in each of these predictors, assuming all other variables are held constant
+
+
+**Prediction**
+
+```{r}
+test_results$frw <- predict(for_tune, sampled_test_set_class)
+postResample(pred = test_results$frw,  obs = test_results$Amount)
+
+#        RMSE     Rsquared          MAE 
+# 92.530832150  0.002415664 59.769348206 
+```
+
+
+
+**Visualization**
+
+
+```{r}
+ggplot(test_results, aes(x = frw, y = Amount)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, colour = "blue") +
+  labs(title = "Forward Regression Observed VS Predicted", x = "Predicted", y = "Observed") +
+  theme_bw()
+```
+
+Very similar to lm
+
+
+
+
+
+
+#### Forward regression
+
+
+
+```{r}
+back_tune  <- train(model2, data = sampled_train_set_class, 
+                  method = "leapBackward", 
+                  preProc=c('scale', 'center'),
+                  tuneGrid = expand.grid(nvmax = 2:8),
+                  trControl = ctrl)
+
+back_tune
+```
+
+Again it selects nvmax = 2
+
+```{r}
+plot(back_tune)
+```
+
+Now we need to select those best variables 
+
+```{r}
+coef(back_tune$finalModel, back_tune$bestTune$nvmax)
+```
+
+
+
+**Prediction**
+
+```{r}
+test_results$bw  <- predict(back_tune, sampled_test_set_class)
+postResample(pred = test_results$bw ,  obs = test_results$Amount)
+
+#        RMSE     Rsquared          MAE 
+#92.530832150  0.002415664 59.769348206 
+
+```
+
+
+
+**Visualization**
+
+
+```{r}
+ggplot(test_results, aes(x = bw, y = Amount)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, colour = "blue") +
+  labs(title = "Backwatd Regression Observed VS Predicted", x = "Predicted", y = "Observed") +
+  theme_bw()
+```
+
+Very similar to lm
+
+
+
+
+
+#### Stepwise regression
+
+
+```{r}
+set.seed(123)
+step_tune   <- train(model2, data = sampled_train_set_class, 
+                  method = "leapSeq", 
+                  preProc=c('scale', 'center'),
+                  tuneGrid = expand.grid(nvmax = 2:8),
+                  trControl = ctrl)
+
+step_tune 
+```
+
+Again it selects nvmax = 2
+
+```{r}
+plot(step_tune )
+```
+
+Now we need to select those best variables 
+
+```{r}
+coef(step_tune $finalModel, step_tune $bestTune$nvmax)
+```
+
+
+
+**Prediction**
+
+```{r}
+test_results$seq  <- predict(step_tune , sampled_test_set_class)
+postResample(pred = test_results$seq ,  obs = test_results$Amount)
+
+#        RMSE     Rsquared          MAE 
+#92.530832150  0.002415664 59.769348206 
+
+```
+
+
+
+**Visualization**
+
+
+```{r}
+ggplot(test_results, aes(x = seq, y = Amount)) +
+  geom_point() +
+  geom_abline(intercept = 0, slope = 1, colour = "blue") +
+  labs(title = "Stepwise Regression Observed VS Predicted", x = "Predicted", y = "Observed") +
+  theme_bw()
+```
+
+Very similar to lm
+
+
+
+
+
+### Regularization Methods
+
+
+
+#### Ridge regression
+
+
+
+```{r}
+# the grid for lambda
+ridge_grid <- expand.grid(lambda = seq(0, .1, length = 100))
+
+# train
+set.seed(123)
+ridge_tune <- train(model2, data = sampled_train_set_class,
+                    method='ridge',
+                    preProc=c('scale','center'),
+                    tuneGrid = ridge_grid,
+                    trControl=ctrl)
+plot(ridge_tune, main = "Ridge Regression Tuning Plot")
+```
+
+
+```{r}
+
+# the best tune
+ridge_tune$bestTune
+```
+
+
+In the visual representation, the plot illustrates a pronounced and nearly linear decrease in RMSE (Root Mean Square Error) as the regularization parameter, lambda, increases. This trend continues until reaching the optimal value of lambda, identified as 0.1. The diminishing RMSE suggests a strong association between the regularization strength and model performance. As lambda increases, the model's complexity decreases, leading to improved performance up to the point of optimal regularization. This finding underscores the importance of striking a balance between model complexity and predictive accuracy in the context of the ridge regression model applied to our dataset.
+
+In the plot, it is noteworthy that the decrease in RMSE exhibits a pattern reminiscent of a negatively sloped linear relationship as the regularization parameter, lambda, increases. This observation suggests a systematic and almost linear reduction in RMSE, reinforcing the correlation between the strength of regularization and the model's predictive performance. 
+
+```{r}
+test_results$ridge <- predict(ridge_tune, sampled_test_set_class)
+
+postResample(pred = test_results$ridge,  obs = test_results$Amount)
+
+#        RMSE     Rsquared          MAE 
+#92.539994403  0.002789309 59.762595976 
+
+```
+
+The performance metrics for the ridge regression model on our dataset reveal notable results. The Root Mean Square Error (RMSE) is calculated at 92.54, indicating the average magnitude of prediction errors. The R-squared value of 0.0028 suggests a limited proportion of variance in the response variable is explained by the model. Lastly, the Mean Absolute Error (MAE) is determined as 59.76, providing an average of the absolute differences between predicted and observed values. While the RMSE and R-squared values suggest room for improvement in predictive accuracy, the MAE underscores the model's ability to minimize the impact of outliers. These insights contribute to a comprehensive understanding of the ridge regression model's performance, guiding potential refinements to enhance its predictive capabilities.
+
+
+
+
+#### Lasso regression
+
+
+
+```{r}
+# the grid for fraction
+lasso_grid <- expand.grid(fraction = seq(.01, 1, length = 100))
+
+# train
+set.seed(123)
+lasso_tune  <- train(model2, data = sampled_train_set_class,
+                    method='lasso',
+                    preProc=c('scale','center'),
+                    tuneGrid = lasso_grid,
+                    trControl=ctrl)
+plot(lasso_tune, main = "Lasso Regression Tuning Plot")
+```
+
+```{r}
+
+lasso_tune$bestTune
+```
+
+The plotted data exhibits a quadratic shape, resembling a parabola. Consequently, the optimal value for the fraction parameter corresponds to the vertex of this parabolic curve, representing the value that minimizes the Root Mean Square Error (RMSE). Remarkably, the identified optimal value aligns precisely with a fraction value of 0.36. This outcome underscores the effectiveness of the chosen fraction parameter in minimizing prediction errors and enhancing the overall performance of the model. The quadratic nature of the plot provides a clear visual representation of the trade-off involved in selecting the optimal fraction value, reinforcing the significance of this parameter in achieving optimal model performance.
+
+
+```{r}
+test_results$lasso <- predict(lasso_tune, sampled_test_set_class)
+
+postResample(pred = test_results$lasso,  obs = test_results$Amount)
+
+#        RMSE     Rsquared          MAE 
+#92.584255056  0.002317578 59.918500324
+
+```
+
+
+
+
+
+#### Elastic Net
+
+
+
+```{r}
+# the grid for alpha and lambda
+elastic_grid = expand.grid(alpha = seq(0, .2, 0.01), lambda = seq(0, .1, 0.01))
+
+set.seed(123)
+# train
+glmnet_tune   <- train(model2, data = sampled_train_set_class,
+                    method='glmnet',
+                    preProc=c('scale','center'),
+                    tuneGrid = elastic_grid,
+                    trControl=ctrl)
+plot(glmnet_tune , main = "Elastic Net Regression Tuning Plot")
+```
+
+```{r}
+
+glmnet_tune $bestTune
+```
+
+
+In summary, the Elastic Net regression tuning plot showcases the interplay between the mixing percentage (alpha) and the Root Mean Square Error (RMSE), with multiple lines representing different values of the regularization parameter (lambda). The selected combination of alpha = 0 and lambda = 0.1 indicates a preference for Ridge regression (L2 regularization) with a moderate level of regularization strength. This configuration strikes a balance between feature selection and coefficient shrinkage, addressing multicollinearity while controlling model complexity.
+
+Additionally, the plot reveals a notable observation: as depicted in the visual representation, the model strongly favors alpha = 0. This signifies a clear preference for L2 regularization, as increasing the mixing percentage (alpha) results in a substantial increase in RMSE. This insight emphasizes the sensitivity of the model to changes in the mixing percentage, underscoring the importance of carefully selecting hyperparameter values to optimize the trade-off between regularization techniques and model performance.
+
+
+```{r}
+test_results$glmnet <- predict(glmnet_tune , sampled_test_set_class)
+
+postResample(pred = test_results$glmnet,  obs = test_results$Amount)
+
+#       RMSE    Rsquared         MAE 
+#92.54207504  0.00274608 59.77173689
+
+```
+
+We obtain a better result than for the other methods
+
+
+
+
+
+## Machine Lerning Tools for Regression
+
+
+### K-Nearest-Neighbours (KNN)
+
+
+```{r}
+set.seed(123)
+knn_tune <- train(model2, 
+                  data = sampled_train_set_class,
+                  method = "kknn",   
+                  preProc=c('scale','center'),
+                  tuneGrid = data.frame(kmax=c(11,13,15,19,21),distance=2,kernel='optimal'),
+                  trControl = ctrl)
+plot(knn_tune, main = "K-Nearest-Neighbours tunning plot")
+
+```
+
+```{r}
+test_results$knn <- predict(knn_tune, sampled_test_set_class)
+
+postResample(pred = test_results$knn,  obs = test_results$Amount)
+```
+
+These metrics provide insights into the performance of the KNN regression model. The RMSE reflects the average magnitude of prediction errors, with a higher value indicating a larger average error. The R-squared value, close to zero in this case, suggests that only a minimal proportion of variance in the response variable is explained by the model. The MAE represents the average absolute differences between predicted and observed values, and a lower MAE is desirable.
+
+
+
+### Random Forest
+
+
+```{r}
+set.seed(123)
+
+rf_tune <- train(model2, 
+                 data = sampled_train_set_class,
+                 method = "rf",
+                 preProc=c('scale','center'),
+                 trControl = ctrl,
+                 ntree = 100,
+                 tuneGrid = data.frame(mtry=c(1,3,5,7)),
+                 importance = TRUE)
+plot(rf_tune, main = "Random Forest tunning plot")
+```
+
+
+```{r}
+
+test_results$rf <- predict(rf_tune, sampled_test_set_class)
+
+postResample(pred = test_results$rf,  obs = test_results$Amount)
+```
+
+
+The RMSE reflects the average magnitude of prediction errors, with a higher value indicating a larger average error. The R-squared value, while close to zero in this case, suggests that only a minimal proportion of variance in the response variable is explained by the model. The MAE represents the average absolute differences between predicted and observed values, and a lower MAE is desirable.
+
+
+```{r}
+plot(varImp(rf_tune, scale = F), scales = list(y = list(cex = .95)))
+```
+
+We can see which variables are more important
+
+
+
+
+### Ensemble
+
+
+```{r}
+apply(test_results[-1], 2, function(x) mean(abs(x - test_results$Amount)))
+```
+
+
+```{r}
+# Combination
+test_results$comb = (test_results$ridge + test_results$seq + test_results$frw)/3
+
+postResample(pred = test_results$comb,  obs = test_results$Amount)
+```
+
+It is not a very good model, but it is better than the previous ones
+
+
+
+## Final predictions
+
+
+While accurate predictions are crucial, understanding prediction intervals is equally vital for identifying opportunities. This knowledge allows us to strategically advertise a post at specific locations and times, optimizing the potential for more shares in a cost-effective manner. While linear models provide prediction intervals through the 95% confidence interval automatically, the landscape differs in machine learning where predefined formulas are absent. In such cases, we rely on common sense and practical judgment to estimate and interpret prediction intervals, ensuring a nuanced approach to decision-making in advertising strategies.
+
+```{r}
+yhat = exp(test_results$comb)
+
+head(yhat) 
+```
+
+```{r}
+hist(yhat, col="darkgreen")
+```
+
+
+## Prediction Intervals
+
+```{r}
+y = exp(test_results$Amount)
+error = y-yhat
+hist(error, col="darkgreen")
+```
+
+```{r}
+noise = error[1:200]
+```
+
+Prediction intervals: let’s fix a 90% confidence
+
+```{r}
+lwr = yhat[201:length(yhat)] + quantile(noise,0.05, na.rm=T) #5%, lower part of the error. 
+upr = yhat[201:length(yhat)] + quantile(noise,0.95, na.rm=T)
+```
+
+Next, we must aggregate the predictions by adding the quantiles. For the 5% quantile, the summation is akin to subtraction as the resulting number tends to be negative. We compute the quantiles using a segment of the testing set and subsequently apply these intervals to the remaining portion, constituting the final testing set.
+
+Assessing the performance involves utilizing the last prices in the predicted values (yhat):
+
+
+```{r}
+predictions = data.frame(real=y[201:length(y)], fit=yhat[201:length(yhat)], lwr=lwr, upr=upr)
+
+predictions = predictions %>% mutate(out=factor(if_else(real<lwr | real>upr,1,0)))
+
+mean(predictions$out==1)
+```
+
+
+```{r}
+ggplot(predictions, aes(x=fit, y=real))+
+  geom_point(aes(color=out)) + theme(legend.position="none") + ylim(0,  40000)+
+  geom_ribbon(data=predictions,aes(ymin=lwr,ymax=upr),alpha=0.3) +
+  labs(title = "Prediction intervals", x = "prediction",y="Real Number Of Shares")
+```
+
+
+We get really bad results
+
+
+
+### Conclusion about Regression
+
+In conclusion, the regression project aimed to predict transaction amounts utilizing various regression techniques, with a particular focus on ensemble methods. However, the results obtained for predicting transaction amounts using the ensemble of models have been notably suboptimal. Despite employing a combination of regression algorithms, including random forest and others, the predictive performance, as indicated by metrics such as mean absolute error (MAE), has fallen short of expectations.
+
+Several potential reasons could contribute to the challenges in predicting transaction amounts accurately:
+
+Data Quality and Feature Engineering: The quality and relevance of the features used in the models play a crucial role. If the dataset lacks informative features or if feature engineering is not performed effectively, models may struggle to capture the underlying patterns in the data.
+
+Model Complexity: Ensemble methods, while powerful, can be sensitive to overfitting if model complexity is not appropriately managed. It's essential to strike a balance between model complexity and generalization to new data.
+
+Hyperparameter Tuning: The performance of ensemble models heavily depends on hyperparameter settings. Inadequate tuning or improper configuration of hyperparameters may hinder the models' ability to learn and generalize from the data.
+
+Inherent Complexity of Transaction Data: The nature of transaction data can be inherently complex, with various factors contributing to the transaction amounts. If the underlying patterns are intricate or subject to rapid changes, models may struggle to capture these dynamics accurately.
+
+Moving forward, it's recommended to revisit the data preprocessing steps, consider additional feature engineering techniques, and explore alternative ensemble methods or machine learning algorithms. Fine-tuning hyperparameters and thoroughly evaluating model performance with cross-validation can also contribute to enhancing predictive accuracy. Additionally, seeking domain expertise to gain a deeper understanding of transactional dynamics may provide valuable insights for refining the regression models.
